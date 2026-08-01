@@ -9,6 +9,21 @@
 
 import { gcj02ToWgs84, round6, extractFromString } from "../worker/src/parse.js";
 
+// parse.js 的 out_of_china 是个粗矩形，把港澳台也圈了进去，但这三地
+// 并不使用 GCJ-02 偏移（地图给的就是 WGS84）。落在这些范围里却没加
+// --wgs84 的话会被多转一次，偏出 500m 以上，这里出声提醒。
+// 边界取保守值：香港北界压到 22.52 以避免误报深圳（22.5446, 113.94）。
+const NO_GCJ_REGIONS = [
+  { name: "香港", latMin: 22.13, latMax: 22.52, lonMin: 113.82, lonMax: 114.45 },
+  { name: "澳门", latMin: 22.06, latMax: 22.23, lonMin: 113.52, lonMax: 113.68 },
+  { name: "台湾", latMin: 21.85, latMax: 25.35, lonMin: 119.3, lonMax: 122.05 },
+];
+
+const noGcjRegion = (lat, lon) =>
+  NO_GCJ_REGIONS.find(
+    (r) => lat >= r.latMin && lat <= r.latMax && lon >= r.lonMin && lon <= r.lonMax
+  );
+
 const argv = process.argv.slice(2);
 const flags = new Set(argv.filter((a) => a.startsWith("--")));
 const args = argv.filter((a) => !a.startsWith("--"));
@@ -47,6 +62,15 @@ if (args.length >= 2 && !Number.isNaN(Number(args[0])) && !Number.isNaN(Number(a
 if (!Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) {
   console.error(`✗ 坐标超出范围: lat=${lat} lon=${lon}（注意顺序是「纬度 经度」）`);
   process.exit(1);
+}
+
+const region = noGcjRegion(lat, lon);
+if (region && !flags.has("--wgs84")) {
+  console.error(
+    `⚠ 这个坐标在${region.name}，当地地图用的就是 WGS84，没有 GCJ-02 偏移。\n` +
+      `  现在会被多换算一次、偏出 500m 以上。请加 --wgs84 重跑：\n` +
+      `  node tools/coord.mjs ${lat} ${lon} --wgs84\n`
+  );
 }
 
 // 境外坐标 gcj02ToWgs84 内部会 out_of_china 判断并原样返回
