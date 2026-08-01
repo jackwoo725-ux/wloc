@@ -1,6 +1,8 @@
 node_modules/
-src/
-package.json
-package-lock.json
-rollup.config.js
 .DS_Store
+
+# 上游把脚本源码与构建配置排除在仓库外，dist/ 下只有构建产物。
+# 这些规则保留，避免误提交本地实验用的构建文件。
+src/
+rollup.config.js
+package-lock.json

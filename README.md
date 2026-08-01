@@ -6,36 +6,57 @@
 
 修改 Apple 网络定位服务 (WiFi/基站) 返回的坐标，实现 iOS 网络定位虚拟定位。打开在线选点页面选位置即可生效，无需手动填经纬度。
 
+> 本仓库 fork 自 [Yu9191/wloc](https://github.com/Yu9191/wloc)，已改为自部署：模块脚本指向本仓库，不再依赖任何公共 worker 实例。
+> **完整部署与使用步骤见 [`docs/setup.md`](docs/setup.md)。**
+
 ---
 
 ## 订阅地址
 
 **Surge:**
-https://raw.githubusercontent.com/Yu9191/wloc/refs/heads/main/modules/wloc.sgmodule
+https://raw.githubusercontent.com/jackwoo725-ux/wloc/refs/heads/main/modules/wloc.sgmodule
 
 **Quantumult X:**
-https://raw.githubusercontent.com/Yu9191/wloc/refs/heads/main/modules/wloc.conf
+https://raw.githubusercontent.com/jackwoo725-ux/wloc/refs/heads/main/modules/wloc.conf
 
 **Loon:**
-https://raw.githubusercontent.com/Yu9191/wloc/refs/heads/main/modules/wloc.lpx
+https://raw.githubusercontent.com/jackwoo725-ux/wloc/refs/heads/main/modules/wloc.lpx
 
 **Stash:**
-https://raw.githubusercontent.com/Yu9191/wloc/refs/heads/main/modules/wloc.stoverride
+https://raw.githubusercontent.com/jackwoo725-ux/wloc/refs/heads/main/modules/wloc.stoverride
 
 **Shadowrocket(小火箭):**
-https://raw.githubusercontent.com/Yu9191/wloc/refs/heads/main/modules/wloc.module
+https://raw.githubusercontent.com/jackwoo725-ux/wloc/refs/heads/main/modules/wloc.module
 
 > Egern 可直接使用 Surge 模块
 > Stash 请直接订阅上面的 `.stoverride`，无需用 Script Hub 转换
 
 ---
 
-## 快捷指令（推荐，最方便）
+## 最简方式：直接开一个网址（不依赖 worker / 快捷指令）
+
+坐标是通过一个**被本地模块拦截、永远不会真的发给苹果**的假接口写入的。所以只要模块生效，在 Safari 里打开下面的网址就能改定位，不需要选点页面、不需要 worker、不需要快捷指令：
+
+```
+设置：https://gs-loc.apple.com/wloc-settings/save?lon=121.4737&lat=31.2304&acc=25
+查询：https://gs-loc.apple.com/wloc-settings/save?action=query
+清除：https://gs-loc.apple.com/wloc-settings/save?action=clear
+```
+
+返回 `{"success":true,...}` 即写入成功。**坐标必须是 WGS84**（国内地图 App 复制出来的是 GCJ-02，直接用会偏几百米，见下方坐标系说明）。
+
+这条路径不经过任何第三方服务器，是隐私最好、依赖最少的方式。选点页面和快捷指令只是在它之上包了一层选点 UI 和坐标换算。
+
+---
+
+## 快捷指令（最省事，但依赖外部 worker）
 
 直接用快捷指令切换 / 清除定位，无需打开选点页面：
 
 - **wloc 设置地理位置**：https://www.icloud.com/shortcuts/a82717d8fdad4e6280866fcf911173f7
 - **wloc 清理恢复位置**：https://www.icloud.com/shortcuts/f42632d406504f24a2cd163af4fe012f
+
+> ⚠️ 这两个快捷指令是**上游作者制作并托管**的，内部写死了他的 worker 域名。用它们等于把你每次选的目标坐标发给第三方服务器。介意的话请用上面的直接网址法，或自部署 worker 后进入快捷指令把域名改成自己的。
 
 **用法**
 
@@ -52,17 +73,18 @@ https://raw.githubusercontent.com/Yu9191/wloc/refs/heads/main/modules/wloc.modul
 
 ### 关于地图链接解析（worker）
 
-为了让苹果地图和高德走同一条流程，链接统一发给 `wloc-spoofer.wloc.workers.dev/api/parse` 解析：
+为了让苹果地图和高德走同一条流程，链接统一发给 `YOUR-WORKER.workers.dev/api/parse` 解析：
 
 - **高德**：分享出来是短链，真实坐标只藏在 302 跳转的 `Location` 头里，且是 GCJ-02 偏移坐标。快捷指令既读不到跳转头、也难做坐标换算，所以由 worker 跟跳转 → 抠坐标 → GCJ-02→WGS84 → 返回经纬度。
 - **苹果地图**：链接里直接带 `coordinate=纬度,经度`，但在**中国大陆同样是 GCJ-02 偏移坐标**，所以和高德一样由 worker 做 GCJ-02→WGS84 换算后返回；境外坐标会自动跳过换算（`out_of_china` 判断）原样返回。除了统一坐标系，走同一接口也方便统一处理短链、文本夹链接、名称解码等。
 
-**隐私：** `/api/parse` 是纯转发解析——收到链接 → 跟跳转 → 解析坐标 → 返回 JSON，全程不写任何存储、不记日志、不缓存，处理完即丢。
+**隐私：** `/api/parse` 是纯转发解析——收到链接 → 跟跳转 → 解析坐标 → 返回 JSON，代码里没有任何存储、日志或缓存写入（见 [`worker/src/index.js`](worker/src/index.js)），处理完即丢。但这只对**你自己部署的** worker 成立；用别人的实例时，你无法验证对面跑的是不是这份代码。
 
-**不放心可自行部署：** worker 源码完全开源，可自己部署一份替换上面的地址：
+**本 fork 默认不指向任何公共实例**，模块里的 `YOUR-WORKER.workers.dev` 是占位符，需要自部署后替换：
 
 - 解析逻辑：[`worker/src/parse.js`](worker/src/parse.js)，路由：[`worker/src/index.js`](worker/src/index.js)
-- 部署后把快捷指令里的 `wloc-spoofer.wloc.workers.dev` 换成你自己的 worker 域名即可。
+- 部署步骤见 [`docs/setup.md`](docs/setup.md)；部署完把仓库和快捷指令里的 `YOUR-WORKER.workers.dev` 全部换成自己的域名。
+- 完全不想碰 worker 的话，用最上面的「直接开一个网址」方式即可，功能不缺。
 
 ---
 
@@ -175,12 +197,12 @@ https://raw.githubusercontent.com/Yu9191/wloc/refs/heads/main/modules/wloc.modul
 
 公共选点页面有请求上限，建议部署自己的实例：
 
-- **Workers**: `https://wloc-spoofer.wloc.workers.dev/`
-- **Pages**: `https://wloc-pages.pages.dev/`
+- **Workers**: `https://YOUR-WORKER.workers.dev/`
+- **Pages**: `https://YOUR-WORKER.workers.dev/`
 
 **一键部署（Workers）：**
 
-[![Deploy to Cloudflare Workers](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/Yu9191/wloc/tree/main/worker)
+[![Deploy to Cloudflare Workers](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/jackwoo725-ux/wloc/tree/main/worker)
 
 > 一键部署仅支持 Workers 模式，点击按钮后按提示授权即可完成部署。
 
@@ -188,7 +210,7 @@ https://raw.githubusercontent.com/Yu9191/wloc/refs/heads/main/modules/wloc.modul
 
 ```bash
 # 1. 克隆仓库
-git clone https://github.com/Yu9191/wloc.git
+git clone https://github.com/jackwoo725-ux/wloc.git
 cd wloc/worker
 
 # 2. 安装依赖
@@ -211,7 +233,7 @@ npm run deploy
 Pages 部署不支持一键按钮，需要手动执行：
 
 ```bash
-git clone https://github.com/Yu9191/wloc.git
+git clone https://github.com/jackwoo725-ux/wloc.git
 cd wloc/worker
 npm install
 npx wrangler pages deploy dist --project-name <自定义项目名>
@@ -240,5 +262,8 @@ Pages 和 Workers 功能完全一致，按需选择即可。
 
 ## 致谢
 
+本仓库 fork 自 [Yu9191/wloc](https://github.com/Yu9191/wloc)，`dist/` 下的脚本与 `worker/` 解析逻辑均为原作者所写，本 fork 仅做自部署改造。
+
+- [Yu9191/wloc](https://github.com/Yu9191/wloc) - 本项目上游 by Yu9191
 - [proxypin-wloc-spoofer](https://github.com/FFF686868/proxypin-wloc-spoofer) - 原始 WLOC 定位修改思路 by FFF686868
 - [NSNanoCat/Util](https://github.com/NSNanoCat/util) - 跨平台脚本工具框架
